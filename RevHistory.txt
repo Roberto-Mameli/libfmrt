@@ -1,0 +1,56 @@
+####################################################################################
+#   ---------------------------------------------------                            #
+#   C/C++ Fast Memory Resident Tables Library (libfmrt)                            #
+#   ---------------------------------------------------                            #
+#   Copyright 2020-2021 Roberto Mameli                                             #
+#                                                                                  #
+#   Licensed under the Apache License, Version 2.0 (the "License");                #
+#   you may not use this file except in compliance with the License.               #
+#   You may obtain a copy of the License at                                        #
+#                                                                                  #
+#       http://www.apache.org/licenses/LICENSE-2.0                                 #
+#                                                                                  #
+#   Unless required by applicable law or agreed to in writing, software            #
+#   distributed under the License is distributed on an "AS IS" BASIS,              #
+#   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.       #
+#   See the License for the specific language governing permissions and            #
+#   limitations under the License.                                                 #
+#   ------------------------------------------------------------------------       #
+#                                                                                  #
+#   Revision History:                                                              #
+#   -----------------                                                              #
+#   v.1.0.0 (June 2021) - First Version, obtained from a proprietary (i.e. not     #
+#                         licensed) software originally developed by the Author    #
+#                         and never used elsewhere.                                #
+#                       - Renamed to libfmrt (where fmrt stands for "fast memory   #
+#                         resident tables"), since previous names (libavl) had     #
+#                         alreday been used in the past                            #
+#                       - This version has been licensed under Apache License      #
+#                         v.2.0                                                    #
+#                       - In this version the library provides only basic table    #
+#                         handling with the following characteristics:             #
+#                           - In-memory handling of up to 32 tables, where each    #
+#                             table is characterized by:                           #
+#                               - A primary key and a variable number of           #
+#                                 attributes (from 0 to 16)                        #
+#                               - Key and attributes may be either:                #
+#                                   - unsigned 32 bit integers (in the interval    #
+#                                     between 0 and 2^32-1)                        #
+#                                   - signed 32 bit integers (in the interval      #
+#                                     between -2^31 and 2^31-1)                    #
+#                                   - characters                                   #
+#                                   - strings (max length 64 characters)           #
+#                                   - timestamps                                   #
+#                               - A single table can contain up to 2^26 elements   #
+#                                 (i.e. slightly more than 67 millions, more       #
+#                                  precisely 67.108.864)                           #
+#                           - All tables are handled in-memory:                    #
+#                               - Previous limits are theoretical, actual limits   #
+#                                 depend upon memory availability in the system    #
+#                           - High efficiency:                                     #
+#                               - All tables are stored as AVL trees               #
+#                               - Worst case complexity of all read and write      #
+#                                 operations is O(log2N)                           #
+#                           - Library is thread-safe                               #
+#                                                                                  #
+####################################################################################
