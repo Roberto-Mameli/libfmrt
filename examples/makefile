@@ -2,7 +2,7 @@
 #   ---------------------------------------------------                            #
 #   C/C++ Fast Memory Resident Tables Library (libfmrt)                            #
 #   ---------------------------------------------------                            #
-#   Copyright 2020-2021 Roberto Mameli                                             #
+#   Copyright 2022 Roberto Mameli                                                  #
 #                                                                                  #
 #   Licensed under the Apache License, Version 2.0 (the "License");                #
 #   you may not use this file except in compliance with the License.               #
@@ -31,13 +31,27 @@
 ####################################################################################
 
 shared:
-	gcc -g -c -O2 -Wall -v -I../headers ./src/ItalianWords.c
-	gcc -g -o ./bin/ItalianWords ./ItalianWords.o -lfmrt
-	rm ./ItalianWords.o
-	
+	gcc -g -c -O2 -Wall -v -I../headers ./src/DictionaryWords.c
+	gcc -g -o ./bin/DictionaryWords ./DictionaryWords.o -lfmrt
+	rm ./DictionaryWords.o
+	gcc -g -c -O2 -Wall -v -I../headers ./src/CountWordsOccurrence.c
+	gcc -g -o ./bin/CountWordsOccurrence ./CountWordsOccurrence.o -lfmrt
+	rm ./CountWordsOccurrence.o
+	gcc -g -c -O2 -Wall -v -I../headers ./src/BarCodeCache.c
+	gcc -g -o ./bin/BarCodeCache ./BarCodeCache.o -lfmrt
+	rm ./BarCodeCache.o
+	gcc -g -c -O2 -Wall -v -I../headers ./src/Televoting.c
+	gcc -g -o ./bin/Televoting ./Televoting.o -lfmrt -lpthread
+	rm ./Televoting.o
+
 static:
-	gcc  ./src/ItalianWords.c -I../headers -L../lib -v -Wall -o ./bin/ItalianWords -lfmrt
+	gcc ./src/DictionaryWords.c -I../headers -L../lib -v -Wall -o ./bin/DictionaryWords -lfmrt
+	gcc ./src/CountWordsOccurrence.c -I../headers -L../lib -v -Wall -o ./bin/CountWordsOccurrence -lfmrt
+	gcc ./src/BarCodeCache.c -I../headers -L../lib -v -Wall -o ./bin/BarCodeCache -lfmrt
+	gcc ./src/Televoting.c -I../headers -L../lib -v -Wall -o ./bin/Televoting -lfmrt -lpthread
 
 clean:
-	rm ./bin/ItalianWords
-
+	rm ./bin/DictionaryWords
+	rm ./bin/CountWordsOccurrence
+	rm ./bin/BarCodeCache
+	rm ./bin/Televoting

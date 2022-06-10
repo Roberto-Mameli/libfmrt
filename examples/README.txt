@@ -2,7 +2,7 @@
 #   ---------------------------------------------------                            #
 #   C/C++ Fast Memory Resident Tables Library (libfmrt)                            #
 #   ---------------------------------------------------                            #
-#   Copyright 2020-2021 Roberto Mameli                                             #
+#   Copyright 2022 Roberto Mameli                                                  #
 #                                                                                  #
 #   Licensed under the Apache License, Version 2.0 (the "License");                #
 #   you may not use this file except in compliance with the License.               #
@@ -86,35 +86,13 @@ The following command clears all executables:
 -----------------------------
 (4) BRIEF EXAMPLE DESCRIPTION
 -----------------------------
-(1) ItalianWords.c
-------------------
-//Usage:
-//    ./Example <configuration file>
-//e.g.
-//    ./Example ../conf/Conf_Example_OK_1.cnf
-//
-//This example takes one argument, that is the name of a configuration file.
-//This file shall have the following format:
-//
-//    $STRINGTOCONVERT = <value of the string without apices>
-//    $LICENSEFILE = <file name to save encrypted string>
-//
-//i.e. it shall be composed of two mandatory parameters (respectively a
-//literal parameter constituted by a clear text string and a filename
-//parameter). The program parses the configuration file and, if
-//everything is OK, it provides two different choices. The first
-//allows to encrypt $STRINGTOCONVERT writing the result into
-//$LICENSEFILE. The second allows to read $LICENSEFILE, decrypt it and
-//check that the content is equal to $STRINGTOCONVERT.
-//Encryption and decryption are based on some host specific parameters,
-//specifically the hostname and hostid. Therefore the encrypted file
-//can only be decrypted on the same host on which it was encrypted.
-//There is also a third option, that forces configuration file reload.
+Please refer to the description provided in ../docs/libfmrt.doc for a detailed
+explanation of the examples in the corresponding directory.
 
 
--------------
-() DISCLAIMER
--------------
+--------------
+(5) DISCLAIMER
+--------------
 Example files are provided only as an example of development of a working
 software program using libfmrt libraries. The source code provided is not
 written as an example of a released, production level application, it is

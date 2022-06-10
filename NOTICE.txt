@@ -1,10 +1,11 @@
 ---------------------------------------------------
 C/C++ Fast Memory Resident Tables Library (libfmrt)
 ---------------------------------------------------
-Copyright 2020-2021 Roberto Mameli
+Copyright 2022 Roberto Mameli     
 
 This product includes software entirely developed
 by the Author. The latest library version can be
 downloaded either from author's personal web site
 (https://www.roberto-mameli.it/software) or from
-GitHub repository (https://github.com/Roberto-Mameli/libfmrt.git).
+GitHub repository (available at
+https://github.com/Roberto-Mameli/libfmrt.git).

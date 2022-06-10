@@ -2,7 +2,7 @@
 #   ---------------------------------------------------                            #
 #   C/C++ Fast Memory Resident Tables Library (libfmrt)                            #
 #   ---------------------------------------------------                            #
-#   Copyright 2020-2021 Roberto Mameli                                             #
+#   Copyright 2022 Roberto Mameli                                                  #
 #                                                                                  #
 #   Licensed under the Apache License, Version 2.0 (the "License");                #
 #   you may not use this file except in compliance with the License.               #
@@ -39,7 +39,7 @@
 #                                   - signed 32 bit integers (in the interval      #
 #                                     between -2^31 and 2^31-1)                    #
 #                                   - characters                                   #
-#                                   - strings (max length 64 characters)           #
+#                                   - strings (max length 255 characters)          #
 #                                   - timestamps                                   #
 #                               - A single table can contain up to 2^26 elements   #
 #                                 (i.e. slightly more than 67 millions, more       #

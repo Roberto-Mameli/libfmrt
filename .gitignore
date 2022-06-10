@@ -1,2 +1,2 @@
-lib/*
-obj/*
+lib/*.a
+obj/*.o

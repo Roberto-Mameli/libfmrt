@@ -2,7 +2,7 @@
  * ---------------------------------------------------                       *
  * C/C++ Fast Memory Resident Tables Library (libfmrt)                       *
  * ---------------------------------------------------                       *
- * Copyright 2020-2021 Roberto Mameli                                        *
+ * Copyright 2022 Roberto Mameli                                             *
  *                                                                           *
  * Licensed under the Apache License, Version 2.0 (the "License");           *
  * you may not use this file except in compliance with the License.          *
@@ -41,32 +41,46 @@
 #include <stdarg.h>
 
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
 /*******************************
  * General Purpose Definitions *
  *******************************/
 /* FMRT types */
-#define FMRTINT              0    /* FMRT Unsigned Integer Type (32 bits)  */
-#define FMRTSIGNED           1    /* FMRT Signed Integer Type (32 bits)    */
-#define FMRTDOUBLE           2    /* FMRT floating double precision type   */
-#define FMRTCHAR             3    /* FMRT Char Type (8 bits)               */
-#define FMRTSTRING           4    /* FMRT String Type (max len 64 chars)   */
-#define FMRTTIMESTAMP        5    /* FMRT Time Stamp (i.e. time_t type)    */
+#define FMRTINT                  0    /* FMRT Unsigned Integer Type (32 bits)  */
+#define FMRTSIGNED               1    /* FMRT Signed Integer Type (32 bits)    */
+#define FMRTDOUBLE               2    /* FMRT floating double precision type   */
+#define FMRTCHAR                 3    /* FMRT Char Type (8 bits)               */
+#define FMRTSTRING               4    /* FMRT String Type (max len 256 chars)  */
+#define FMRTTIMESTAMP            5    /* FMRT Time Stamp (i.e. time_t type)    */
+
+/* Constant used to indicate the null fmrtIndex pointer */
+#define FMRTNULLPTR     0xFFFFFFFF    /* Constant used to identify NULL ptr    */
+
+/* Constant used to specify selected ordering of CSV exports */
+#define FMRTASCENDING            0    /* Export data in ascending order        */
+#define FMRTDESCENDING           1    /* Export data in descending order       */
+#define FMRTOPTIMIZED            2    /* Export data to optimize data reload   */
 
 
 /*********************
  * Error Definitions *
  *********************/
-#define FMRTOK               0    /* Result OK                            */
-#define FMRTKO               1    /* Something unspecified went wrong     */
-#define FMRTIDALREADYEXISTS  2    /* Id in the request is already in use  */
-#define FMRTIDNOTFOUND       3    /* Id in the request does not exist     */
-#define FMRTMAXTABLEREACHED  4    /* No more tables left to define        */
-#define FMRTMAXFIELDSINVALID 5    /* Fields num outside of allowed range  */
-#define FMRTDUPLICATEKEY     6    /* Key already exists in Create oper.   */
-#define FMRTNOTEMPTY         7    /* The Table contains at least one elem */
-#define FMRTNOTFOUND         8    /* Searched Element has not been found  */
-#define FMRTFIELDTOOLONG     9    /* String field exceeds max length (64) */
-#define FMRTOUTOFMEMORY     10    /* No More space left for new elements  */
+#define FMRTOK               0    /* Result OK                             */
+#define FMRTKO               1    /* Something unspecified went wrong      */
+#define FMRTIDALREADYEXISTS  2    /* Id in the request is already in use   */
+#define FMRTIDNOTFOUND       3    /* Id in the request does not exist      */
+#define FMRTMAXTABLEREACHED  4    /* No more tables left to define         */
+#define FMRTMAXFIELDSINVALID 5    /* Fields num outside of allowed range   */
+#define FMRTREDEFPROHIBITED  6    /* Key/Field Redefinition Prohibited     */
+#define FMRTDUPLICATEKEY     7    /* Key already exists in Create oper.    */
+#define FMRTNOTEMPTY         8    /* The Table contains at least one elem  */
+#define FMRTNOTFOUND         9    /* Searched Element has not been found   */
+#define FMRTFIELDTOOLONG    10    /* String field exceeds max length (256) */
+#define FMRTOUTOFMEMORY     11    /* No More space left for new elements   */
 
 
 /********************
@@ -152,17 +166,15 @@ fmrtResult fmrtClearTable (fmrtId);
  * - keyLen
  *   meaningful only in case of keyType==FMRTSTRING, when it
  *   represents the maximum string length for the key value
- *   Allowed values are in the interval 1-64.
+ *   Allowed values are in the interval 1-256.
  *   For FMRTINT, FMRTSIGNED, FMRTDOUBLE, FMRTCHAR and
  *   FMRTTIMESTAMP types, the parameter is meaningless,
  *   since by default key lengths in those cases are
  *   fixed (e.g. 1 for FMRTCHAR, 4 for FMRTINT, etc.).
- * This call can be invoked only before entering the first
- * element in the table. After the first fmrtCreate() operation
- * the fmrtDefineKey() call is forbidden. However, up that
- * moment the call can be invoked an arbitrary number of
- * times, observing that each invocation overwrites all
- * previous ones
+ * This call can be invoked only once after fmrtDefineTable()
+ * and before invoking fmrtDefineFields(). In case of
+ * multiple invokations a proper error is provided (see
+ * below the list of possible Return Values)
  * ---------------------------------------------------------
  * Possible Return Values:
  * - FMRTOK
@@ -173,9 +185,9 @@ fmrtResult fmrtClearTable (fmrtId);
  *   is not valid
  * - FMRTIDNOTFOUND
  *   tableId is not defined
- * - FMRTNOTEMPTY
- *   The key cannot be redefined since the table is not
- *   empty
+ * - FMRTREDEFPROHIBITED
+ *   The key cannot be redefined (it has been already
+ *   defined)
  * - FMRTFIELDTOOLONG
  *   In case of keyType==FMRTSTRING the keyLen parameter is
  *   outside the allowed interval
@@ -210,13 +222,11 @@ fmrtResult fmrtDefineKey (fmrtId, char*, fmrtType, fmrtLen);
  *   THIS SHALL BE INSERTED ONLY if field type == FMRTSTRING.
  *   DO NOT INSERT FIELD LEN FOR OTHER TYPES
  *   It represents the maximum string length for the field
- *   value. Allowed values are in the interval 1-64.
- * This call can be invoked only before entering the first
- * element in the table. After the first fmrtCreate() operation
- * the fmrtDefineFileds() call is forbidden. However, up that
- * moment the call can be invoked an arbitrary number of
- * times, observing that each invocation overwrites all
- * previous ones
+ *   value. Allowed values are in the interval 1-256.
+ * This call can be invoked only once after fmrtDefineKey()
+ * and before invoking fmrtCreate(). In case of
+ * multiple invokations a proper error is provided (see
+ * below the list of possible Return Values)
  * ---------------------------------------------------------
  * Possible Return Values:
  * - FMRTOK
@@ -227,15 +237,15 @@ fmrtResult fmrtDefineKey (fmrtId, char*, fmrtType, fmrtLen);
  *   type parameters is not valid
  * - FMRTIDNOTFOUND
  *   tableId is not defined
- * - FMRTNOTEMPTY
- *   The fields cannot be redefined since the table is not
- *   empty
+ * - FMRTREDEFPROHIBITED
+ *   The fields cannot be redefined (they have been already
+ *   defined)
  * - FMRTMAXFIELDSINVALID
  *   The specified number of fields is outside the allowed
  *   range (1-16)
  * - FMRTFIELDTOOLONG
  *   The maximum length specified for one of the FMRTSTRING
- *   parameters is outside the allowed interval (1-64)
+ *   parameters is outside the allowed interval (1-256)
  ***********************************************************/
 fmrtResult fmrtDefineFields (fmrtId, uint8_t, ...);
 
@@ -335,7 +345,7 @@ fmrtResult fmrtCreate (fmrtId, ...);
  *   table shall be defined first through fmrtDefineTable()
  * - paramMask
  *   It is a bitwise mask that is used to identify the
- *   paramaters to be changed. For example, assuming that
+ *   parameters to be changed. For example, assuming that
  *   5 parameters have been defined through fmrtDefineFields(),
  *   e.g.
  *     fmrtDefineFields(tableId,5,param#0,..,param#1,..param#4)
@@ -396,7 +406,7 @@ fmrtResult fmrtModify (fmrtId, fmrtParamMask, ...);
  *   table shall be defined first through fmrtDefineTable()
  * - paramMask
  *   It is a bitwise mask that is used to identify the
- *   paramaters to be changed (in case of entry already
+ *   parameters to be changed (in case of entry already
  *   present in the table). For example, assuming that
  *   5 parameters have been defined through fmrtDefineFields(),
  *   e.g.
@@ -552,9 +562,14 @@ fmrtResult fmrtImportTableCsv (fmrtId, FILE *, char, int *);
  * - separator
  *   It is a char specified by the caller that is used to
  *   separate fields into the output
- * - reverseFlag
- *   if 0 the table is exported in ascending order with
- *   respect to the key, otherwise descending order is used
+ * - selectedOrder
+ *   it can assume the following values: FMRTASCENDING, to
+ *   export data in ascending order with respect to the key,
+ *   FMRTDESCENDING to use descending order, and
+ *   FMRTOPTIMIZED to export data using an order optimized
+ *   to speed up data reload through fmrtImportTableCsv().
+ *   If an unrecognized value is specified, by default the
+ *   call will export data assuming FMRTOPTIMIZED.
  * Please note that the file shall be opened before calling
  * this function, otherwise a run-time error will occur.
  * Similarly, the function call does not close the output
@@ -568,6 +583,9 @@ fmrtResult fmrtImportTableCsv (fmrtId, FILE *, char, int *);
  *   call invoked by the caller
  * - FMRTIDNOTFOUND
  *   tableId is not defined
+ * - FMRTOUTOFMEMORY
+ *   There is not enough memory to allocate data structures
+ *   needed to export the table in FMRTOPTIMIZED order
  ***********************************************************/
 fmrtResult fmrtExportTableCsv (fmrtId, FILE *, char, uint8_t);
 
@@ -591,9 +609,14 @@ fmrtResult fmrtExportTableCsv (fmrtId, FILE *, char, uint8_t);
  * - separator
  *   It is a char specified by the caller that is used to
  *   separate fields into the output
- * - reverseFlag
- *   if 0 the table is exported in ascending order with
- *   respect to the key, otherwise descending order is used
+ * - selectedOrder
+ *   It can assume the following values: FMRTASCENDING, to
+ *   export data in ascending order with respect to the key,
+ *   FMRTDESCENDING to use descending order. Differently
+ *   from fmrtExportTableCsv(), FMRTOPTIMIZED ordering is
+ *   not supported for ranges. If an unrecognized value is
+ *   specified, by default data will be exported assuming
+ *   FMRTASCENDING order.
  * - keyMin
  *   Minimum value of the key. It must be of the same type
  *   specified at key definition (fmrtDefineKey() call).
@@ -665,7 +688,7 @@ long fmrtGetMemoryFootPrint(fmrtId);
  * seconds from Epoch, Jan 1st 1970, 00:00:00 UTC), however
  * it allows changing the format used to display and enter
  * FMRTTIMEFORMAT data. When a format is specified, then
- * timestamp keys and fields in fmrtRead(), frmrtCreate(),
+ * timestamp keys and fields in fmrtRead(), fmrtCreate(),
  * etc. must be defined as character strings with the
  * correct format (e.g. "Mon Jun 21 17:08:55 2021").
  * The library allows also the usage of raw time format; in
@@ -727,5 +750,11 @@ time_t fmrtEncodeTimeStamp(char * );
  * It does not return anything
  ***********************************************************/
 void fmrtDecodeTimeStamp(time_t , char * );
+
+
+#ifdef __cplusplus
+} //end extern "C"
+#endif
+
 
 #endif /* FMRT_H_ */

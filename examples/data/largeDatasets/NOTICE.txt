@@ -1,0 +1,24 @@
+This directory contains several dataset files, which have been obtained
+by adapting a file (items.csv) downloaded from the following website:
+
+   https://archive.org/details/UpcDatabase2010-06-01
+
+Some work has been done to reformat the file and to clean it from
+spurious data. The result is file:
+
+   items.csv.out
+
+which contains almost 1,260,000 rows. There are smaller files extracted
+by the one above:
+
+   items_xxx.csv
+
+where xxx represents the amount of data (e.g. 10K stands for 10,000 rows
+and so on). Be aware that files are ordered with respect to the key, which
+implies that the time needed to load it increases more than linearly with
+respect to the number of elements (see library documentation for details).
+As an example, 1,000 elements are read almost istantaneously, 10,000 elements
+are read with a rate of about 1000 items/s, 100,000 elements are read with a
+rate of about 150 item/s, and so on (being ordered, every insertion requires
+full rebalancing of the tree, so that the insertion rate decreases as soon
+as the table becomes more populated).

@@ -2,7 +2,7 @@
  * ---------------------------------------------------                       *
  * C/C++ Fast Memory Resident Tables Library (libfmrt)                       *
  * ---------------------------------------------------                       *
- * Copyright 2020-2021 Roberto Mameli                                        *
+ * Copyright 2022 Roberto Mameli                                             *
  *                                                                           *
  * Licensed under the Apache License, Version 2.0 (the "License");           *
  * you may not use this file except in compliance with the License.          *
@@ -1071,6 +1071,7 @@ static fmrtIndex rebalanceSubTree (uint8_t tableIndex, fmrtIndex nodeIndex)
         subtreePtr = Tables[tableIndex].fmrtData + leftIndex*Tables[tableIndex].elemSize;
         leftsubtree = *((fmrtIndex *) subtreePtr);
         rightsubtree = *((fmrtIndex *) (subtreePtr+sizeof(fmrtIndex)));
+
         if ( nodeHeight(tableIndex,leftsubtree)>nodeHeight(tableIndex,rightsubtree) )
         {   /* if left subtree of the left child has highest height simply rotate right */
             workIndex = rotateRight(tableIndex,nodeIndex);
@@ -1166,6 +1167,160 @@ static void copyNode (uint8_t tableIndex, fmrtIndex toIndex, fmrtIndex fromIndex
 
 
 /***********************************************************
+ * initFifo()
+ * ---------------------------------------------------------
+ * This function is used by the fmrt internal function
+ * exportTableOptimized(). It takes the table index (first
+ * parameter, which is the index of the Table[] array, not
+ * the TableId) and the requested FIFO Size. It allocates
+ * a FIFO associated to the given table, to be used when
+ * exporting it in FMRTOPTIMIZED
+ ***********************************************************/
+static fmrtResult initFifo (uint8_t index, fmrtIndex fifoSize)
+{
+    /* Local Variables */
+    fmrtIndex * fifoPtr;
+
+    if ( (fifoPtr=calloc(fifoSize,sizeof(fmrtIndex))) == NULL)
+    {
+        Tables[index].fifo = NULL;
+        Tables[index].fifoSize = Tables[index].fifoIn = Tables[index].fifoOut = 0;
+        return (FMRTOUTOFMEMORY);
+    }
+
+    Tables[index].fifo = fifoPtr;
+    Tables[index].fifoSize = fifoSize;
+    Tables[index].fifoIn = Tables[index].fifoOut = 0;
+
+    return (FMRTOK);
+}
+
+
+/***********************************************************
+ * releaseFifo()
+ * ---------------------------------------------------------
+ * This function is used by the fmrt internal function
+ * exportTableOptimized(). It takes the table index (first
+ * parameter, which is the index of the Table[] array, not
+ * the TableId) and releases memory allocated for the
+ * FIFO
+ ***********************************************************/
+static void releaseFifo (uint8_t index)
+{
+    if (Tables[index].fifo)
+        free (Tables[index].fifo);
+
+    Tables[index].fifo = NULL;
+    Tables[index].fifoSize = Tables[index].fifoIn = Tables[index].fifoOut = 0;
+
+    return;
+}
+
+
+/***********************************************************
+ * getFifoSize()
+ * ---------------------------------------------------------
+ * This function is used by the fmrt internal function
+ * exportTableOptimized(). It takes the table index (first
+ * parameter, which is the index of the Table[] array, not
+ * the TableId) and provides the current queue size of the
+ * FIFO used to export data according to level order traversal
+ * ---------------------------------------------------------
+ * NOTE WELL: the implementation of this FIFO is simplified
+ * for efficiency reasons. Specifically:
+ *    - In and Out pointers cannot overlap, otherwise the
+ *      FIFO is considered empty (i.e. given N the FIFO
+ *      dimension, it can host up to (N-1) elements)
+ *    - There is no control upon insertion or extraction
+ *      about the number of elements already queued, and
+ *      insertFifo() and extractFifo() routines do not
+ *      provide errors
+ ***********************************************************/
+static fmrtIndex getFifoSize (uint8_t index)
+{
+    /* Local Variables */
+    fmrtIndex currSize;
+
+    if ( (currSize=Tables[index].fifoIn-Tables[index].fifoOut) < 0)
+        currSize = currSize+Tables[index].fifoSize;
+
+    return (currSize);
+
+}
+
+
+/***********************************************************
+ * insertFifo()
+ * ---------------------------------------------------------
+ * This function is used by the fmrt internal function
+ * exportTableOptimized(). It takes the table index (first
+ * parameter, which is the index of the Table[] array, not
+ * the TableId) and puts the element given as second parameter
+ * in the FIFO structure used to explore the tree according
+ * to level order traversal (elements in the FIFO represent
+ * the indexes of AVL Tree nodes that belong to the table)
+ * ---------------------------------------------------------
+ * NOTE WELL: the implementation of this FIFO is simplified
+ * for efficiency reasons. Specifically:
+ *    - In and Out pointers cannot overlap, otherwise the
+ *      FIFO is considered empty (i.e. given N the FIFO
+ *      dimension, it can host up to (N-1) elements)
+ *    - There is no control upon insertion or extraction
+ *      about the number of elements already queued, and
+ *      insertFifo() and extractFifo() routines do not
+ *      provide errors
+ ***********************************************************/
+static void insertFifo (uint8_t index, fmrtIndex node)
+{
+    /* Local Variables */
+    fmrtIndex i;
+
+    i = Tables[index].fifoIn;
+
+    Tables[index].fifo[i] = node;
+    Tables[index].fifoIn = (i+1) % Tables[index].fifoSize;
+
+    return;
+}
+
+
+/***********************************************************
+ * extractFifo()
+ * ---------------------------------------------------------
+ * This function is used by the fmrt internal function
+ * exportTableOptimized(). It takes the table index (first
+ * parameter, which is the index of the Table[] array, not
+ * the TableId) and provides the next element extracted
+ * from the FIFO structure, which represents the next node
+ * to explore according to level order traversal (elements
+ * in the FIFO represent the indexes of AVL Tree nodes that
+ * belong to the table)
+ * ---------------------------------------------------------
+ * NOTE WELL: the implementation of this FIFO is simplified
+ * for efficiency reasons. Specifically:
+ *    - In and Out pointers cannot overlap, otherwise the
+ *      FIFO is considered empty (i.e. given N the FIFO
+ *      dimension, it can host up to (N-1) elements)
+ *    - There is no control upon insertion or extraction
+ *      about the number of elements already queued, and
+ *      insertFifo() and extractFifo() routines do not
+ *      provide errors
+ ***********************************************************/
+static fmrtIndex extractFifo (uint8_t index)
+{
+    /* Local Variables */
+    fmrtIndex i, ret;
+
+    i = Tables[index].fifoOut;
+    ret = Tables[index].fifo[i];
+    Tables[index].fifoOut = (i+1) % Tables[index].fifoSize;
+
+    return(ret);
+
+}
+
+
+/***********************************************************
  * exportTableRecurse()
  * ---------------------------------------------------------
  * This function is used by the fmrt library call
@@ -1174,13 +1329,14 @@ static void copyNode (uint8_t tableIndex, fmrtIndex toIndex, fmrtIndex fromIndex
  * It takes the table index (first parameter, which is the
  * index of the Table[] array, not the TableId), the
  * current node index (second parameter), a file pointer
- * (third parameter) and a char representing a user defined
- * separator between fields. The routine consider the
+ * (third parameter), a char representing a user defined
+ * separator between fields and a flag that indicates
+ * the export ordering. The routine consider the
  * index as the root of a subtree which is printed into
  * the file pointed by the third parameter by using
  * in order approach.
  ***********************************************************/
-static void exportTableRecurse (uint8_t tableIndex, fmrtIndex nodeIndex, FILE *fPtr, char sep, uint8_t reverse)
+static void exportTableRecurse (uint8_t tableIndex, fmrtIndex nodeIndex, FILE *fPtr, char sep, uint8_t ordering)
 {
     /* Local Variables */
     fmrtIndex    leftIndex, rightIndex;
@@ -1198,11 +1354,11 @@ static void exportTableRecurse (uint8_t tableIndex, fmrtIndex nodeIndex, FILE *f
     leftIndex = *((fmrtIndex *) currentPtr);
     rightIndex = *((fmrtIndex *) (currentPtr+sizeof(fmrtIndex)));
 
-    /* In-order traversal -> First left subtree (in case reverse==0, right subtree otherwise)... */
-    if (reverse==0)
-        exportTableRecurse (tableIndex, leftIndex, fPtr, sep, reverse);
+    /* In-order traversal -> First left subtree (in case ordering==FMRTASCENDING, right subtree otherwise)... */
+    if (ordering==FMRTASCENDING)
+        exportTableRecurse (tableIndex, leftIndex, fPtr, sep, ordering);
     else
-        exportTableRecurse (tableIndex, rightIndex, fPtr, sep, reverse);
+        exportTableRecurse (tableIndex, rightIndex, fPtr, sep, ordering);
 
     /* In-order traversal -> ... then current node... */
     /* Print the key... */
@@ -1294,13 +1450,171 @@ static void exportTableRecurse (uint8_t tableIndex, fmrtIndex nodeIndex, FILE *f
     }   /* for (j=0; j<Tables[i].numFields; j++) */
     fprintf (fPtr,"\n");
 
-    /* In-order traversal -> ... last right subtree (in case reverse==0, left subtree otherwise)*/
-    if (reverse==0)
-        exportTableRecurse (tableIndex, rightIndex, fPtr, sep, reverse);
+    /* In-order traversal -> ... last right subtree (in case ordering==FMRTASCENDING, left subtree otherwise)*/
+    if (ordering==FMRTASCENDING)
+        exportTableRecurse (tableIndex, rightIndex, fPtr, sep, ordering);
     else
-        exportTableRecurse (tableIndex, leftIndex, fPtr, sep, reverse);
+        exportTableRecurse (tableIndex, leftIndex, fPtr, sep, ordering);
 
     return;
+}
+
+
+/***********************************************************
+ * exportTableOptimized()
+ * ---------------------------------------------------------
+ * This function is used by the fmrt library call
+ * fmrtExportTableCsv(), and implements an iterative level
+ * order traversal of the fmrt tree.
+ * It takes the table index (first parameter, which is the
+ * index of the Table[] array, not the TableId), the
+ * current node index (second parameter), a file pointer
+ * (third parameter) and a char representing a user defined
+ * separator between fields. The routine prints the
+ * content of the table into the file specified by filePtr
+ * by using a level order traversal, so that the
+ * subsequent reload does not require any rebalancing and
+ * occurs in an optimized way
+ ***********************************************************/
+static fmrtResult exportTableOptimized (uint8_t tableIndex, fmrtIndex rootIndex, FILE *fPtr, char sep)
+{
+    /* Local Variables */
+    fmrtIndex    leftIndex, rightIndex, currentIndex, fifoSize;
+    uint8_t      j;
+    fmrtResult   res;
+    void        *currentPtr;
+
+    /* Exit if rootIndex is NULL */
+    if (rootIndex==FMRTNULLPTR)
+        return (FMRTOK);
+
+    /* Initialize FIFO Queue used for level order traversal           */
+    /* Since the tree is balanced, the lowest  level contains at most */
+    /* half of the current number of elements plus 1. This is the     */
+    /* maximum number of elements in the FIFO structure. However,     */
+    /* allocate one more element to be on the safe side               */
+    fifoSize = Tables[tableIndex].currentNumElem/2 + 2;
+    if ( (res=initFifo (tableIndex,fifoSize)) != FMRTOK)
+        return (res);
+
+    /* Insert root node into the queue */
+    insertFifo (tableIndex,rootIndex);
+
+    /* While loop until the queue is empty */
+    while ( (fifoSize=getFifoSize(tableIndex)) )
+    {
+        /* Index of the element just extracted from the FIFO structure */
+        currentIndex = extractFifo (tableIndex);
+
+        /* Set currentPtr to the first byte of the structure that contains the index just extracted */
+        currentPtr = Tables[tableIndex].fmrtData + currentIndex*Tables[tableIndex].elemSize;
+
+        /* Left and Right subtree indexes */
+        leftIndex = *((fmrtIndex *) currentPtr);
+        rightIndex = *((fmrtIndex *) (currentPtr+sizeof(fmrtIndex)));
+
+        /* Process current node... First print the key... */
+        switch (Tables[tableIndex].key.type)
+        {
+            case FMRTINT:
+            {
+                fprintf (fPtr, "%d",*((uint32_t *)(currentPtr+Tables[tableIndex].key.delta)));
+                break;
+            }   /* case FMRTINT */
+            case FMRTSIGNED:
+            {
+                fprintf (fPtr, "%d",*((int32_t *)(currentPtr+Tables[tableIndex].key.delta)));
+                break;
+            }   /* case FMRTSIGNED */
+            case FMRTDOUBLE:
+            {
+                fprintf (fPtr, "%lf",*((double *)(currentPtr+Tables[tableIndex].key.delta)));
+                break;
+            }   /* case FMRTDOUBLE */
+            case FMRTCHAR:
+            {
+                fprintf (fPtr, "%c",*((char *)(currentPtr+Tables[tableIndex].key.delta)));
+                break;
+            }   /* case FMRTCHAR */
+            case FMRTSTRING:
+            {
+                fprintf (fPtr, "%s",(char *)(currentPtr+Tables[tableIndex].key.delta));
+                break;
+            }   /* case FMRTSTRING */
+            case FMRTTIMESTAMP:
+            {
+                if (fmrtTimeFormat[0]=='\0')
+                    /* time format empty --> print raw timestamp */
+                    fprintf (fPtr, "%ld",*((time_t *)(currentPtr+Tables[tableIndex].key.delta)));
+                else
+                {   /* convert raw timestamp into a string formatted according to fmrtTimeFormat */
+                    char  timestamp[MAXFMRTSTRINGLEN+1];
+                    strftime(timestamp, MAXFMRTSTRINGLEN, fmrtTimeFormat, localtime((time_t *)(currentPtr+Tables[tableIndex].key.delta)));
+                    fprintf (fPtr, "%s",timestamp);
+                }
+                break;
+            }   /* case FMRTTIMESTAMP */
+        }   /* switch (Tables[tableIndex].key.type) */
+        /* then loop through all the fields and print them separated by sep */
+        for (j=0; j<Tables[tableIndex].numFields; j++)
+        {   /* Loop through all fields */
+            switch (Tables[tableIndex].fields[j].type)
+            {
+                case FMRTINT:
+                {
+                    fprintf (fPtr, "%c%d",sep,*((uint32_t *)(currentPtr+Tables[tableIndex].fields[j].delta)));
+                    break;
+                }   /* case FMRTINT */
+                case FMRTSIGNED:
+                {
+                    fprintf (fPtr, "%c%d",sep,*((int32_t *)(currentPtr+Tables[tableIndex].fields[j].delta)));
+                    break;
+                }   /* case FMRTSIGNED */
+                case FMRTDOUBLE:
+                {
+                    fprintf (fPtr, "%c%lf",sep,*((double *)(currentPtr+Tables[tableIndex].fields[j].delta)));
+                    break;
+                }   /* case FMRTDOUBLE */
+                case FMRTCHAR:
+                {
+                    fprintf (fPtr, "%c%c",sep,*((char *)(currentPtr+Tables[tableIndex].fields[j].delta)));
+                    break;
+                }   /* case FMRTCHAR */
+                case FMRTSTRING:
+                {
+                    fprintf (fPtr, "%c%s",sep,(char *)(currentPtr+Tables[tableIndex].fields[j].delta));
+                    break;
+                }   /* case FMRTSTRING */
+                case FMRTTIMESTAMP:
+                {
+                    if (fmrtTimeFormat[0]=='\0')
+                        /* time format empty --> print raw timestamp */
+                        fprintf (fPtr, "%c%ld",sep,*((time_t *)(currentPtr+Tables[tableIndex].fields[j].delta)));
+                    else
+                    {   /* convert raw timestamp into a string formatted according to fmrtTimeFormat */
+                        char  timestamp[MAXFMRTSTRINGLEN+1];
+                        strftime(timestamp, MAXFMRTSTRINGLEN, fmrtTimeFormat, localtime((time_t *)(currentPtr+Tables[tableIndex].fields[j].delta)));
+                        fprintf (fPtr, "%c%s",sep,timestamp);
+                    }
+                    break;
+                }   /* case FMRTTIMESTAMP */
+            }   /* switch (Tables[tableIndex].fields[j].type) */
+        }   /* for (j=0; j<Tables[tableIndex].numFields; j++) */
+        fprintf (fPtr,"\n");
+
+        /* Now insert in FIFO the root nodes of the left and right subtree  to go to the next level */
+        if (leftIndex!=FMRTNULLPTR)
+            insertFifo (tableIndex,leftIndex);
+        if (rightIndex!=FMRTNULLPTR)
+            insertFifo (tableIndex,rightIndex);
+
+    }   /* while ( fifoSize = getFifoSize(tableIndex) ) */
+
+    /* the Queue is empty -> the table has been completely traversed */
+    /* release Fifo and exit */
+    releaseFifo(tableIndex);
+
+    return (FMRTOK);
 }
 
 
@@ -1314,13 +1628,14 @@ static void exportTableRecurse (uint8_t tableIndex, fmrtIndex nodeIndex, FILE *f
  * index of the Table[] array, not the TableId), the
  * current node index (second parameter), a file pointer
  * (third parameter), a char representing a user defined
- * separator between fields and two integer values
- * representing respectively the minimum and maximum key
- * value. The routine consider the index as the root of a
+ * separator between fields, a flag indicating the export
+ * ordering and two integer values representing respectively
+ * the minimum and maximum key value.
+ * The routine consider the index as the root of a
  * subtree which is printed into the file pointed by the
  * third parameter by using in order approach.
  ***********************************************************/
-static void exportRangeRecurseInt (uint8_t tableIndex, fmrtIndex nodeIndex, FILE *fPtr, char sep, uint8_t reverse, uint32_t keyMin, uint32_t keyMax)
+static void exportRangeRecurseInt (uint8_t tableIndex, fmrtIndex nodeIndex, FILE *fPtr, char sep, uint8_t ordering, uint32_t keyMin, uint32_t keyMax)
 {
     /* Local Variables */
     fmrtIndex    leftIndex, rightIndex;
@@ -1340,24 +1655,24 @@ static void exportRangeRecurseInt (uint8_t tableIndex, fmrtIndex nodeIndex, FILE
     leftIndex = *((fmrtIndex *) currentPtr);
     rightIndex = *((fmrtIndex *) (currentPtr+sizeof(fmrtIndex)));
 
-    /* In-order traversal -> First left subtree (in case reverse==0, right subtree otherwise)... */
-    /* ... but skip unnecessary node traversal in case the current key is outside the range      */
+    /* In-order traversal -> First left subtree (in case ordering==FMRTASCENDING, right subtree otherwise)... */
+    /* ... but skip unnecessary node traversal in case the current key is outside the range                   */
     if (key<keyMin)
     {   /* current element is lower than keyMin -> explore only right subtree */
-        exportRangeRecurseInt (tableIndex, rightIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseInt (tableIndex, rightIndex, fPtr, sep, ordering, keyMin, keyMax);
         return;
     }
     if (key>keyMax)
     {   /* current element is higher than keyMax -> explore only left subtree */
-        exportRangeRecurseInt (tableIndex, leftIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseInt (tableIndex, leftIndex, fPtr, sep, ordering, keyMin, keyMax);
         return;
     }
     /* Current key is within the interval... explore both subtrees, with */
-    /* order depending on reverse parameter                              */
-    if (reverse==0)
-        exportRangeRecurseInt (tableIndex, leftIndex, fPtr, sep, reverse, keyMin, keyMax);
+    /* order depending on ordering parameter                              */
+    if (ordering==FMRTDESCENDING)
+        exportRangeRecurseInt (tableIndex, rightIndex, fPtr, sep, ordering, keyMin, keyMax);
     else
-        exportRangeRecurseInt (tableIndex, rightIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseInt (tableIndex, leftIndex, fPtr, sep, ordering, keyMin, keyMax);
 
     /* In-order traversal -> ... after subtree print current node... */
     /* Print the key... */
@@ -1409,11 +1724,11 @@ static void exportRangeRecurseInt (uint8_t tableIndex, fmrtIndex nodeIndex, FILE
     }   /* for (j=0; j<Tables[i].numFields; j++) */
     fprintf (fPtr,"\n");
 
-    /* In-order traversal -> ... last right subtree (in case reverse==0, left subtree otherwise)*/
-    if (reverse==0)
-        exportRangeRecurseInt (tableIndex, rightIndex, fPtr, sep, reverse, keyMin, keyMax);
+    /* In-order traversal -> ... last right subtree (in case ordering==FMRTASCENDING, left subtree otherwise)*/
+    if (ordering==FMRTDESCENDING)
+        exportRangeRecurseInt (tableIndex, leftIndex, fPtr, sep, ordering, keyMin, keyMax);
     else
-        exportRangeRecurseInt (tableIndex, leftIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseInt (tableIndex, rightIndex, fPtr, sep, ordering, keyMin, keyMax);
 
     return;
 }
@@ -1429,13 +1744,14 @@ static void exportRangeRecurseInt (uint8_t tableIndex, fmrtIndex nodeIndex, FILE
  * index of the Table[] array, not the TableId), the
  * current node index (second parameter), a file pointer
  * (third parameter), a char representing a user defined
- * separator between fields and two signed integer values
+ * separator between fields, a flag indicating the export
+ * ordering and two signed integer values
  * representing respectively the minimum and maximum key
  * value. The routine consider the index as the root of a
  * subtree which is printed into the file pointed by the
  * third parameter by using in order approach.
  ***********************************************************/
-static void exportRangeRecurseSigned (uint8_t tableIndex, fmrtIndex nodeIndex, FILE *fPtr, char sep, uint8_t reverse, int32_t keyMin, int32_t keyMax)
+static void exportRangeRecurseSigned (uint8_t tableIndex, fmrtIndex nodeIndex, FILE *fPtr, char sep, uint8_t ordering, int32_t keyMin, int32_t keyMax)
 {
     /* Local Variables */
     fmrtIndex   leftIndex, rightIndex;
@@ -1455,24 +1771,24 @@ static void exportRangeRecurseSigned (uint8_t tableIndex, fmrtIndex nodeIndex, F
     leftIndex = *((fmrtIndex *) currentPtr);
     rightIndex = *((fmrtIndex *) (currentPtr+sizeof(fmrtIndex)));
 
-    /* In-order traversal -> First left subtree (in case reverse==0, right subtree otherwise)... */
-    /* ... but skip unnecessary node traversal in case the current key is outside the range      */
+    /* In-order traversal -> First left subtree (in case ordering==FMRTASCENDING, right subtree otherwise)... */
+    /* ... but skip unnecessary node traversal in case the current key is outside the range                   */
     if (key<keyMin)
     {   /* current element is lower than keyMin -> explore only right subtree */
-        exportRangeRecurseSigned (tableIndex, rightIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseSigned (tableIndex, rightIndex, fPtr, sep, ordering, keyMin, keyMax);
         return;
     }
     if (key>keyMax)
     {   /* current element is higher than keyMax -> explore only left subtree */
-        exportRangeRecurseSigned (tableIndex, leftIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseSigned (tableIndex, leftIndex, fPtr, sep, ordering, keyMin, keyMax);
         return;
     }
     /* Current key is within the interval... explore both subtrees, with */
-    /* order depending on reverse parameter                              */
-    if (reverse==0)
-        exportRangeRecurseSigned (tableIndex, leftIndex, fPtr, sep, reverse, keyMin, keyMax);
+    /* order depending on ordering parameter                             */
+    if (ordering==FMRTDESCENDING)
+        exportRangeRecurseSigned (tableIndex, rightIndex, fPtr, sep, ordering, keyMin, keyMax);
     else
-        exportRangeRecurseSigned (tableIndex, rightIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseSigned (tableIndex, leftIndex, fPtr, sep, ordering, keyMin, keyMax);
 
     /* In-order traversal -> ... after subtree print current node... */
     /* Print the key... */
@@ -1524,11 +1840,11 @@ static void exportRangeRecurseSigned (uint8_t tableIndex, fmrtIndex nodeIndex, F
     }   /* for (j=0; j<Tables[i].numFields; j++) */
     fprintf (fPtr,"\n");
 
-    /* In-order traversal -> ... last right subtree (in case reverse==0, left subtree otherwise)*/
-    if (reverse==0)
-        exportRangeRecurseSigned (tableIndex, rightIndex, fPtr, sep, reverse, keyMin, keyMax);
+    /* In-order traversal -> ... last right subtree (in case ordering==FMRTASCENDING, left subtree otherwise)*/
+    if (ordering==FMRTDESCENDING)
+        exportRangeRecurseSigned (tableIndex, leftIndex, fPtr, sep, ordering, keyMin, keyMax);
     else
-        exportRangeRecurseSigned (tableIndex, leftIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseSigned (tableIndex, rightIndex, fPtr, sep, ordering, keyMin, keyMax);
 
     return;
 }
@@ -1544,13 +1860,14 @@ static void exportRangeRecurseSigned (uint8_t tableIndex, fmrtIndex nodeIndex, F
  * index of the Table[] array, not the TableId), the
  * current node index (second parameter), a file pointer
  * (third parameter), a char representing a user defined
- * separator between fields and two double values
+ * separator between fields, a flag indicating the export
+ * ordering and two double values
  * representing respectively the minimum and maximum key
  * value. The routine consider the index as the root of a
  * subtree which is printed into the file pointed by the
  * third parameter by using in order approach.
  ***********************************************************/
-static void exportRangeRecurseDouble (uint8_t tableIndex, fmrtIndex nodeIndex, FILE *fPtr, char sep, uint8_t reverse, double keyMin, double keyMax)
+static void exportRangeRecurseDouble (uint8_t tableIndex, fmrtIndex nodeIndex, FILE *fPtr, char sep, uint8_t ordering, double keyMin, double keyMax)
 {
     /* Local Variables */
     fmrtIndex   leftIndex, rightIndex;
@@ -1570,24 +1887,24 @@ static void exportRangeRecurseDouble (uint8_t tableIndex, fmrtIndex nodeIndex, F
     leftIndex = *((fmrtIndex *) currentPtr);
     rightIndex = *((fmrtIndex *) (currentPtr+sizeof(fmrtIndex)));
 
-    /* In-order traversal -> First left subtree (in case reverse==0, right subtree otherwise)... */
-    /* ... but skip unnecessary node traversal in case the current key is outside the range      */
+    /* In-order traversal -> First left subtree (in case ordering==FMRTASCENDING, right subtree otherwise)... */
+    /* ... but skip unnecessary node traversal in case the current key is outside the range                   */
     if (key<keyMin)
     {   /* current element is lower than keyMin -> explore only right subtree */
-        exportRangeRecurseDouble (tableIndex, rightIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseDouble (tableIndex, rightIndex, fPtr, sep, ordering, keyMin, keyMax);
         return;
     }
     if (key>keyMax)
     {   /* current element is higher than keyMax -> explore only left subtree */
-        exportRangeRecurseDouble (tableIndex, leftIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseDouble (tableIndex, leftIndex, fPtr, sep, ordering, keyMin, keyMax);
         return;
     }
     /* Current key is within the interval... explore both subtrees, with */
-    /* order depending on reverse parameter                              */
-    if (reverse==0)
-        exportRangeRecurseDouble (tableIndex, leftIndex, fPtr, sep, reverse, keyMin, keyMax);
+    /* order depending on ordering parameter                              */
+    if (ordering==FMRTDESCENDING)
+        exportRangeRecurseDouble (tableIndex, rightIndex, fPtr, sep, ordering, keyMin, keyMax);
     else
-        exportRangeRecurseDouble (tableIndex, rightIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseDouble (tableIndex, leftIndex, fPtr, sep, ordering, keyMin, keyMax);
 
     /* In-order traversal -> ... after subtree print current node... */
     /* Print the key... */
@@ -1639,11 +1956,11 @@ static void exportRangeRecurseDouble (uint8_t tableIndex, fmrtIndex nodeIndex, F
     }   /* for (j=0; j<Tables[i].numFields; j++) */
     fprintf (fPtr,"\n");
 
-    /* In-order traversal -> ... last right subtree (in case reverse==0, left subtree otherwise)*/
-    if (reverse==0)
-        exportRangeRecurseDouble (tableIndex, rightIndex, fPtr, sep, reverse, keyMin, keyMax);
+    /* In-order traversal -> ... last right subtree (in case ordering==FMRTASCENDING, left subtree otherwise)*/
+    if (ordering==FMRTDESCENDING)
+        exportRangeRecurseDouble (tableIndex, leftIndex, fPtr, sep, ordering, keyMin, keyMax);
     else
-        exportRangeRecurseDouble (tableIndex, leftIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseDouble (tableIndex, rightIndex, fPtr, sep, ordering, keyMin, keyMax);
 
     return;
 }
@@ -1659,13 +1976,14 @@ static void exportRangeRecurseDouble (uint8_t tableIndex, fmrtIndex nodeIndex, F
  * index of the Table[] array, not the TableId), the
  * current node index (second parameter), a file pointer
  * (third parameter), a char representing a user defined
- * separator between fields and two char values
+ * separator between fields, a flag indicating the export
+ * ordering and two char values
  * representing respectively the minimum and maximum key
  * value. The routine consider the index as the root of a
  * subtree which is printed into the file pointed by the
  * third parameter by using in order approach.
  ***********************************************************/
-static void exportRangeRecurseChar (uint8_t tableIndex, fmrtIndex nodeIndex, FILE *fPtr, char sep, uint8_t reverse, char keyMin, char keyMax)
+static void exportRangeRecurseChar (uint8_t tableIndex, fmrtIndex nodeIndex, FILE *fPtr, char sep, uint8_t ordering, char keyMin, char keyMax)
 {
     /* Local Variables */
     fmrtIndex    leftIndex, rightIndex;
@@ -1685,24 +2003,24 @@ static void exportRangeRecurseChar (uint8_t tableIndex, fmrtIndex nodeIndex, FIL
     leftIndex = *((fmrtIndex *) currentPtr);
     rightIndex = *((fmrtIndex *) (currentPtr+sizeof(fmrtIndex)));
 
-    /* In-order traversal -> First left subtree (in case reverse==0, right subtree otherwise)... */
-    /* ... but skip unnecessary node traversal in case the current key is outside the range      */
+    /* In-order traversal -> First left subtree (in case ordering==FMRTASCENDING, right subtree otherwise)... */
+    /* ... but skip unnecessary node traversal in case the current key is outside the range                   */
     if (key<keyMin)
     {   /* current element is lower than keyMin -> explore only right subtree */
-        exportRangeRecurseChar (tableIndex, rightIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseChar (tableIndex, rightIndex, fPtr, sep, ordering, keyMin, keyMax);
         return;
     }
     if (key>keyMax)
     {   /* current element is higher than keyMax -> explore only left subtree */
-        exportRangeRecurseChar (tableIndex, leftIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseChar (tableIndex, leftIndex, fPtr, sep, ordering, keyMin, keyMax);
         return;
     }
     /* Current key is within the interval... explore both subtrees, with */
-    /* order depending on reverse parameter                              */
-    if (reverse==0)
-        exportRangeRecurseChar (tableIndex, leftIndex, fPtr, sep, reverse, keyMin, keyMax);
+    /* order depending on ordering parameter                              */
+    if (ordering==FMRTDESCENDING)
+        exportRangeRecurseChar (tableIndex, rightIndex, fPtr, sep, ordering, keyMin, keyMax);
     else
-        exportRangeRecurseChar (tableIndex, rightIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseChar (tableIndex, leftIndex, fPtr, sep, ordering, keyMin, keyMax);
 
     /* In-order traversal -> ... after subtree print current node... */
     /* Print the key... */
@@ -1754,11 +2072,11 @@ static void exportRangeRecurseChar (uint8_t tableIndex, fmrtIndex nodeIndex, FIL
     }   /* for (j=0; j<Tables[i].numFields; j++) */
     fprintf (fPtr,"\n");
 
-    /* In-order traversal -> ... last right subtree (in case reverse==0, left subtree otherwise)*/
-    if (reverse==0)
-        exportRangeRecurseChar (tableIndex, rightIndex, fPtr, sep, reverse, keyMin, keyMax);
+    /* In-order traversal -> ... last right subtree (in case ordering==FMRTASCENDING, left subtree otherwise)*/
+    if (ordering==FMRTDESCENDING)
+        exportRangeRecurseChar (tableIndex, leftIndex, fPtr, sep, ordering, keyMin, keyMax);
     else
-        exportRangeRecurseChar (tableIndex, leftIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseChar (tableIndex, rightIndex, fPtr, sep, ordering, keyMin, keyMax);
 
     return;
 }
@@ -1774,13 +2092,14 @@ static void exportRangeRecurseChar (uint8_t tableIndex, fmrtIndex nodeIndex, FIL
  * index of the Table[] array, not the TableId), the
  * current node index (second parameter), a file pointer
  * (third parameter), a char representing a user defined
- * separator between fields and two string values
+ * separator between fields, a flag indicating the export
+ * ordering and two string values
  * representing respectively the minimum and maximum key
  * value. The routine consider the index as the root of a
  * subtree which is printed into the file pointed by the
  * third parameter by using in order approach.
  ***********************************************************/
-static void exportRangeRecurseString (uint8_t tableIndex, fmrtIndex nodeIndex, FILE *fPtr, char sep, uint8_t reverse, char *keyMin, char *keyMax)
+static void exportRangeRecurseString (uint8_t tableIndex, fmrtIndex nodeIndex, FILE *fPtr, char sep, uint8_t ordering, char *keyMin, char *keyMax)
 {
     /* Local Variables */
     fmrtIndex    leftIndex, rightIndex;
@@ -1800,24 +2119,24 @@ static void exportRangeRecurseString (uint8_t tableIndex, fmrtIndex nodeIndex, F
     leftIndex = *((fmrtIndex *) currentPtr);
     rightIndex = *((fmrtIndex *) (currentPtr+sizeof(fmrtIndex)));
 
-    /* In-order traversal -> First left subtree (in case reverse==0, right subtree otherwise)... */
-    /* ... but skip unnecessary node traversal in case the current key is outside the range      */
+    /* In-order traversal -> First left subtree (in case ordering==FMRTASCENDING, right subtree otherwise)... */
+    /* ... but skip unnecessary node traversal in case the current key is outside the range                   */
     if (strcmp(key,keyMin)<0)
     {   /* current element is lower than keyMin -> explore only right subtree */
-        exportRangeRecurseString (tableIndex, rightIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseString (tableIndex, rightIndex, fPtr, sep, ordering, keyMin, keyMax);
         return;
     }
     if (strcmp(key,keyMax)>0)
     {   /* current element is higher than keyMax -> explore only left subtree */
-        exportRangeRecurseString (tableIndex, leftIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseString (tableIndex, leftIndex, fPtr, sep, ordering, keyMin, keyMax);
         return;
     }
     /* Current key is within the interval... explore both subtrees, with */
-    /* order depending on reverse parameter                              */
-    if (reverse==0)
-        exportRangeRecurseString (tableIndex, leftIndex, fPtr, sep, reverse, keyMin, keyMax);
+    /* order depending on ordering parameter                              */
+    if (ordering==FMRTDESCENDING)
+        exportRangeRecurseString (tableIndex, rightIndex, fPtr, sep, ordering, keyMin, keyMax);
     else
-        exportRangeRecurseString (tableIndex, rightIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseString (tableIndex, leftIndex, fPtr, sep, ordering, keyMin, keyMax);
 
     /* In-order traversal -> ... after subtree print current node... */
     /* Print the key... */
@@ -1869,11 +2188,11 @@ static void exportRangeRecurseString (uint8_t tableIndex, fmrtIndex nodeIndex, F
     }   /* for (j=0; j<Tables[i].numFields; j++) */
     fprintf (fPtr,"\n");
 
-    /* In-order traversal -> ... last right subtree (in case reverse==0, left subtree otherwise)*/
-    if (reverse==0)
-        exportRangeRecurseString (tableIndex, rightIndex, fPtr, sep, reverse, keyMin, keyMax);
+    /* In-order traversal -> ... last right subtree (in case ordering==FMRTASCENDING, left subtree otherwise)*/
+    if (ordering==FMRTDESCENDING)
+        exportRangeRecurseString (tableIndex, leftIndex, fPtr, sep, ordering, keyMin, keyMax);
     else
-        exportRangeRecurseString (tableIndex, leftIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseString (tableIndex, rightIndex, fPtr, sep, ordering, keyMin, keyMax);
 
     return;
 }
@@ -1889,13 +2208,14 @@ static void exportRangeRecurseString (uint8_t tableIndex, fmrtIndex nodeIndex, F
  * index of the Table[] array, not the TableId), the
  * current node index (second parameter), a file pointer
  * (third parameter), a char representing a user defined
- * separator between fields and two time_t values
+ * separator between fields, a flag indicating the export
+ * ordering and two time_t values
  * representing respectively the minimum and maximum key
  * value. The routine consider the index as the root of a
  * subtree which is printed into the file pointed by the
  * third parameter by using in order approach.
  ***********************************************************/
-static void exportRangeRecurseTimestamp (uint8_t tableIndex, fmrtIndex nodeIndex, FILE *fPtr, char sep, uint8_t reverse, time_t keyMin, time_t keyMax)
+static void exportRangeRecurseTimestamp (uint8_t tableIndex, fmrtIndex nodeIndex, FILE *fPtr, char sep, uint8_t ordering, time_t keyMin, time_t keyMax)
 {
     /* Local Variables */
     fmrtIndex   leftIndex, rightIndex;
@@ -1915,24 +2235,24 @@ static void exportRangeRecurseTimestamp (uint8_t tableIndex, fmrtIndex nodeIndex
     leftIndex = *((fmrtIndex *) currentPtr);
     rightIndex = *((fmrtIndex *) (currentPtr+sizeof(fmrtIndex)));
 
-    /* In-order traversal -> First left subtree (in case reverse==0, right subtree otherwise)... */
-    /* ... but skip unnecessary node traversal in case the current key is outside the range      */
+    /* In-order traversal -> First left subtree (in case ordering==FMRTASCENDING, right subtree otherwise)... */
+    /* ... but skip unnecessary node traversal in case the current key is outside the range                   */
     if (key<keyMin)
     {   /* current element is lower than keyMin -> explore only right subtree */
-        exportRangeRecurseTimestamp (tableIndex, rightIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseTimestamp (tableIndex, rightIndex, fPtr, sep, ordering, keyMin, keyMax);
         return;
     }
     if (key>keyMax)
     {   /* current element is higher than keyMax -> explore only left subtree */
-        exportRangeRecurseTimestamp (tableIndex, leftIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseTimestamp (tableIndex, leftIndex, fPtr, sep, ordering, keyMin, keyMax);
         return;
     }
     /* Current key is within the interval... explore both subtrees, with */
-    /* order depending on reverse parameter                              */
-    if (reverse==0)
-        exportRangeRecurseTimestamp (tableIndex, leftIndex, fPtr, sep, reverse, keyMin, keyMax);
+    /* order depending on ordering parameter                              */
+    if (ordering==FMRTDESCENDING)
+        exportRangeRecurseTimestamp (tableIndex, rightIndex, fPtr, sep, ordering, keyMin, keyMax);
     else
-        exportRangeRecurseTimestamp (tableIndex, rightIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseTimestamp (tableIndex, leftIndex, fPtr, sep, ordering, keyMin, keyMax);
 
     /* In-order traversal -> ... after subtree print current node... */
     /* Print the key... */
@@ -1992,11 +2312,11 @@ static void exportRangeRecurseTimestamp (uint8_t tableIndex, fmrtIndex nodeIndex
     }   /* for (j=0; j<Tables[i].numFields; j++) */
     fprintf (fPtr,"\n");
 
-    /* In-order traversal -> ... last right subtree (in case reverse==0, left subtree otherwise)*/
-    if (reverse==0)
-        exportRangeRecurseTimestamp (tableIndex, rightIndex, fPtr, sep, reverse, keyMin, keyMax);
+    /* In-order traversal -> ... last right subtree (in case ordering==FMRTASCENDING, left subtree otherwise)*/
+    if (ordering==FMRTDESCENDING)
+        exportRangeRecurseTimestamp (tableIndex, leftIndex, fPtr, sep, ordering, keyMin, keyMax);
     else
-        exportRangeRecurseTimestamp (tableIndex, leftIndex, fPtr, sep, reverse, keyMin, keyMax);
+        exportRangeRecurseTimestamp (tableIndex, rightIndex, fPtr, sep, ordering, keyMin, keyMax);
 
     return;
 }
@@ -2177,17 +2497,15 @@ fmrtResult fmrtClearTable (fmrtId tableId)
  * - keyLen
  *   meaningful only in case of keyType==FMRTSTRING, when it
  *   represents the maximum string length for the key value
- *   Allowed values are in the interval 1-64.
+ *   Allowed values are in the interval 1-256.
  *   For FMRTINT, FMRTSIGNED, FMRTDOUBLE, FMRTCHAR and
  *   FMRTTIMESTAMP types, the parameter is meaningless,
  *   since by default key lengths in those cases are
  *   fixed (e.g. 1 for FMRTCHAR, 4 for FMRTINT, etc.).
- * This call can be invoked only before entering the first
- * element in the table. After the first fmrtCreate() operation
- * the fmrtDefineKey() call is forbidden. However, up that
- * moment the call can be invoked an arbitrary number of
- * times, observing that each invocation overwrites all
- * previous ones
+ * This call can be invoked only once after fmrtDefineTable()
+ * and before invoking fmrtDefineFields(). In case of
+ * multiple invokations a proper error is provided (see
+ * below the list of possible Return Values)
  * ---------------------------------------------------------
  * Possible Return Values:
  * - FMRTOK
@@ -2198,9 +2516,9 @@ fmrtResult fmrtClearTable (fmrtId tableId)
  *   is not valid
  * - FMRTIDNOTFOUND
  *   tableId is not defined
- * - FMRTNOTEMPTY
- *   The key cannot be redefined since the table is not
- *   empty
+ * - FMRTREDEFPROHIBITED
+ *   The key cannot be redefined (it has been already
+ *   defined)
  * - FMRTFIELDTOOLONG
  *   In case of keyType==FMRTSTRING the keyLen parameter is
  *   outside the allowed interval
@@ -2220,12 +2538,12 @@ fmrtResult fmrtDefineKey (fmrtId tableId, char* keyName, fmrtType keyType, fmrtL
     if ( ((res=searchTable(tableId,&i))!=FMRTOK) )
         return (res);
 
-    /* If found, set lock and check that the AVL Tree is still empty, otherwise provide error FMRTNOTEMPTY */
+    /* If found, set lock and check that the key has not been already defined, otherwise provide error FMRTREDEFPROHIBITED */
     pthread_mutex_lock(&(Tables[i].tableMtx));
-    if (Tables[i].status==NOTEMPTY)
+    if (Tables[i].status >= KEYDEFINED)
     {   /* Clear lock before exiting */
         pthread_mutex_unlock(&(Tables[i].tableMtx));
-        return (FMRTNOTEMPTY);
+        return (FMRTREDEFPROHIBITED);
     }
 
     /* Check keyType and, in case of string type, also keyLen     */
@@ -2326,13 +2644,11 @@ fmrtResult fmrtDefineKey (fmrtId tableId, char* keyName, fmrtType keyType, fmrtL
  *   THIS SHALL BE INSERTED ONLY if field type == FMRTSTRING.
  *   DO NOT INSERT FIELD LEN FOR OTHER TYPES
  *   It represents the maximum string length for the field
- *   value. Allowed values are in the interval 1-64.
- * This call can be invoked only before entering the first
- * element in the table. After the first fmrtCreate() operation
- * the fmrtDefineFileds() call is forbidden. However, up that
- * moment the call can be invoked an arbitrary number of
- * times, observing that each invocation overwrites all
- * previous ones
+ *   value. Allowed values are in the interval 1-256.
+ * This call can be invoked only once after fmrtDefineKey()
+ * and before invoking fmrtCreate(). In case of
+ * multiple invokations a proper error is provided (see
+ * below the list of possible Return Values)
  * ---------------------------------------------------------
  * Possible Return Values:
  * - FMRTOK
@@ -2343,15 +2659,15 @@ fmrtResult fmrtDefineKey (fmrtId tableId, char* keyName, fmrtType keyType, fmrtL
  *   type parameters is not valid
  * - FMRTIDNOTFOUND
  *   tableId is not defined
- * - FMRTNOTEMPTY
- *   The fields cannot be redefined since the table is not
- *   empty
+ * - FMRTREDEFPROHIBITED
+ *   The fields cannot be redefined (they have been already
+ *   defined)
  * - FMRTMAXFIELDSINVALID
  *   The specified number of fields is outside the allowed
  *   range (1-16)
  * - FMRTFIELDTOOLONG
  *   The maximum length specified for one of the FMRTSTRING
- *   parameters is outside the allowed interval (1-64)
+ *   parameters is outside the allowed interval (1-256)
  ***********************************************************/
 fmrtResult fmrtDefineFields (fmrtId tableId, uint8_t numFields, ...)
 {
@@ -2371,12 +2687,12 @@ fmrtResult fmrtDefineFields (fmrtId tableId, uint8_t numFields, ...)
     if ( ((res=searchTable(tableId,&i))!=FMRTOK) )
         return (res);
 
-    /* If found, set lock and check that the AVL Tree is still empty, otherwise provide error FMRTNOTEMPTY */
+    /* If found, set lock and check that the fields have not been already defined, otherwise provide error FMRTREDEFPROHIBITED */
     pthread_mutex_lock(&(Tables[i].tableMtx));
-    if (Tables[i].status==NOTEMPTY)
+    if (Tables[i].status >= FIELDSDEFINED)
     {   /* Clear lock before exiting */
         pthread_mutex_unlock(&(Tables[i].tableMtx));
-        return (FMRTNOTEMPTY);
+        return (FMRTREDEFPROHIBITED);
     }
 
     /* If specified number of fields is outside the allowed range provide an error */
@@ -2404,7 +2720,7 @@ fmrtResult fmrtDefineFields (fmrtId tableId, uint8_t numFields, ...)
             return (FMRTKO);
         }
         Tables[i].fields[j].type = (fmrtType) type;
-        /* In case of FMRTSTRING type we expect also string length (up to 64 characters) */
+        /* In case of FMRTSTRING type we expect also string length (up to MAXFMRTSTRINGLEN characters) */
         if (type==FMRTSTRING)
         {
             len = va_arg (args, int);
@@ -2723,7 +3039,7 @@ fmrtResult fmrtCreate (fmrtId tableId, ...)
     char        keyChar,
                 *string,
                 keyString[MAXFMRTSTRINGLEN+1];
-    fmrtNodeTraversalStack   *traversal,
+    fmrtNodeTraversalStack  *traversal,
                             *rebalPtr;
 
     /* Call searchTable() internal function to look for the given tableId */
@@ -2811,7 +3127,7 @@ fmrtResult fmrtCreate (fmrtId tableId, ...)
     /* subtree on which insertion shall be done                                      */
 
     /* If not already called before, this is the first insertion */
-    if ( (Tables[i].fmrtData==NULL) || (Tables[i].status==DEFINED) )
+    if ( (Tables[i].fmrtData==NULL) || (Tables[i].status<NOTEMPTY) )
     {   /* Initialize Empty elements list */
         res = initEmptyList(i);
         if (res!=FMRTOK)
@@ -2995,7 +3311,7 @@ fmrtResult fmrtCreate (fmrtId tableId, ...)
  *   table shall be defined first through fmrtDefineTable()
  * - paramMask
  *   It is a bitwise mask that is used to identify the
- *   paramaters to be changed. For example, assuming that
+ *   parameters to be changed. For example, assuming that
  *   5 parameters have been defined through fmrtDefineFields(),
  *   e.g.
  *     fmrtDefineFields(tableId,5,param#0,..,param#1,..param#4)
@@ -3239,7 +3555,7 @@ fmrtResult fmrtModify (fmrtId tableId, fmrtParamMask paramMask, ...)
  *   table shall be defined first through fmrtDefineTable()
  * - paramMask
  *   It is a bitwise mask that is used to identify the
- *   paramaters to be changed (in case of entry already
+ *   parameters to be changed (in case of entry already
  *   present in the table). For example, assuming that
  *   5 parameters have been defined through fmrtDefineFields(),
  *   e.g.
@@ -3461,7 +3777,7 @@ fmrtResult fmrtCreateModify (fmrtId tableId, fmrtParamMask paramMask, ...)
     else
     {   /* the element is not present -> create it */
         /* Check if this is the first insertion */
-        if ( (Tables[i].fmrtData==NULL) || (Tables[i].status==DEFINED) )
+        if ( (Tables[i].fmrtData==NULL) || (Tables[i].status<NOTEMPTY) )
         {   /* Initialize Empty elements list */
             res = initEmptyList(i);
             if (res!=FMRTOK)
@@ -3680,7 +3996,7 @@ fmrtResult fmrtDelete (fmrtId tableId, ...)
                 leftmost,
                 leftmostRightChild,
                 rebalIndex;
-    fmrtNodeTraversalStack   *traversal,
+    fmrtNodeTraversalStack  *traversal,
                             *toLeaf,
                             *rebalPtr;
 
@@ -3970,20 +4286,16 @@ fmrtResult fmrtImportTableCsv (fmrtId tableId, FILE *filePtr, char separator, in
     char                    *p,
                             *q,
                             keyChar,
-                            fieldChar[MAXFMRTFIELDNUM],
                             keyString[MAXFMRTSTRINGLEN+1],
-                            fieldString[MAXFMRTFIELDNUM][MAXFMRTSTRINGLEN+1],
                             inputString[MAXCSVLINELEN];
-    void                    *currentPtr;
+    void                   *currentPtr,
+                           *rowPtr;
     uint8_t                 i,j, duplKey, maxLen;
     uint32_t                keyInt,
-                            fieldInt[MAXFMRTFIELDNUM];
-    int32_t                 keySigned,
-                            fieldSigned[MAXFMRTFIELDNUM];
-    double                  keyDouble,
-                            fieldDouble[MAXFMRTFIELDNUM];
-    time_t                  keyTimestamp,
-                            fieldTimestamp[MAXFMRTFIELDNUM];
+                            fieldsLen;
+    int32_t                 keySigned;
+    double                  keyDouble;
+    time_t                  keyTimestamp;
     fmrtResult              res;
     fmrtIndex               newElement,
                             rebalIndex;
@@ -4008,6 +4320,15 @@ fmrtResult fmrtImportTableCsv (fmrtId tableId, FILE *filePtr, char separator, in
 
     /* Set Table specific lock */
     pthread_mutex_lock(&(Tables[i].tableMtx));
+
+    /* Allocate a buffer that will be used to store data read line by line */
+    fieldsLen = Tables[i].elemSize - 2*sizeof(fmrtIndex) - Tables[i].key.len;
+    if  ( (rowPtr=(void *) malloc(fieldsLen)) == NULL)
+    {   /* Not enough system memory to read the row -> clear the lock and exit */
+        pthread_mutex_unlock(&(Tables[i].tableMtx));
+        return (FMRTOUTOFMEMORY);
+    }
+    Tables[i].row = rowPtr;
 
     /* Read lines from CSV input file and fill the structure */
     while (fgets (inputString,MAXCSVLINELEN,filePtr))
@@ -4078,8 +4399,12 @@ fmrtResult fmrtImportTableCsv (fmrtId tableId, FILE *filePtr, char separator, in
             }   /* case FMRTTIMESTAMP */
         }   /* switch (Tables[i].key.type) */
 
+        /* Restore pointer at the beginning of the buffer to be filled up with relevat fields and clear data */
+        rowPtr = Tables[i].row;
+        memset (rowPtr,0,fieldsLen);
+        /* Now loop through all fields and fill the buffer */
         for (j=0; j<Tables[i].numFields; j++)
-        {   /* Loop through all fields */
+        {
             p=q+1;
             if (*p=='\0')
                 break;
@@ -4091,44 +4416,51 @@ fmrtResult fmrtImportTableCsv (fmrtId tableId, FILE *filePtr, char separator, in
             {
                 case FMRTINT:
                 {
-                    fieldInt[j] = atoi (p);
+                    *((uint32_t *)rowPtr) = atoi (p);
+                    rowPtr += sizeof (uint32_t);
                     break;
                 }
                 case FMRTSIGNED:
                 {
-                    fieldSigned[j] = atoi (p);
+                    *((int32_t *)rowPtr) = atoi (p);
+                    rowPtr += sizeof (int32_t);
                     break;
                 }
                 case FMRTDOUBLE:
                 {
-                    fieldDouble[j] = atof (p);
+                    *((double *)rowPtr) = atof (p);
+                    rowPtr += sizeof (double);
                     break;
                 }
                 case FMRTCHAR:
                 {
-                    fieldChar[j] = *p;
+                    *((char *)rowPtr) = *p;
+                    rowPtr += sizeof (char);
                     break;
                 }
                 case FMRTSTRING:
                 {   /* In case of string exceeding the maximum length it is automatically truncated */
                     maxLen = Tables[i].fields[j].len;    /* This field is max string length + trailing 0 */
-                    strncpy (fieldString[j],p,maxLen);
-                    fieldString[j][maxLen-1] = '\0';
+                    strncpy ((char*)rowPtr,p,maxLen);
+                    rowPtr += maxLen-1;
+                    *((char*)rowPtr) = '\0';
+                    rowPtr +=1;
                     break;
                 }
             case FMRTTIMESTAMP:
             {
                 if (fmrtTimeFormat[0]=='\0')
                     /* time format empty --> read raw timestamp from input line */
-                    fieldTimestamp[j] = atol (p);
+                    *((time_t *)rowPtr) = atol (p);
                 else
                 {   /* convert string read from input line to raw timestamp according to fmrtTimeFormat */
                     struct tm   TimeFromString;
                     if (strptime (p, fmrtTimeFormat, &TimeFromString) != NULL)
-                        fieldTimestamp[j] = mktime (&TimeFromString);
+                        *((time_t *)rowPtr) = mktime (&TimeFromString);
                     else
-                        fieldTimestamp[j] = 0;
+                        *((time_t *)rowPtr) = 0;
                 }
+                rowPtr += sizeof (time_t);
                 break;
             }   /* case FMRTTIMESTAMP */
             }   /* switch (Tables[i].fields[j].type) */
@@ -4136,6 +4468,8 @@ fmrtResult fmrtImportTableCsv (fmrtId tableId, FILE *filePtr, char separator, in
 
         if (j<Tables[i].numFields)
         {   /* This is a blocking error -> clear the lock and exit */
+            free (Tables[i].row);
+            Tables[i].row = NULL;
             pthread_mutex_unlock(&(Tables[i].tableMtx));
             return (FMRTKO);
         }
@@ -4143,8 +4477,10 @@ fmrtResult fmrtImportTableCsv (fmrtId tableId, FILE *filePtr, char separator, in
         /* call searchElem() internal function to look for the element and provide error if result is FMRTKO */
         duplKey = 0;
         if ( (res=searchElem(i, keyInt, keySigned, keyDouble, keyChar, keyString, keyTimestamp, &traversal)) == FMRTKO)
-        {   /* This is a blocking error -> release traversal stack, clear the lock and exit */
+        {   /* This is a blocking error -> release resources, clear the lock and exit */
             clearNodeTraversalStack (traversal);
+            free (Tables[i].row);
+            Tables[i].row = NULL;
             /* Clear the lock before exiting */
             pthread_mutex_unlock(&(Tables[i].tableMtx));
             return (FMRTKO);
@@ -4161,19 +4497,21 @@ fmrtResult fmrtImportTableCsv (fmrtId tableId, FILE *filePtr, char separator, in
         /* insertion shall be done                                                        */
 
         if (duplKey)
-        {   /* the element is still present, overwrite data contained into the internal structure with those read from CSV */
+        {   /* the element is already present, overwrite data contained into the internal structure with those read from CSV */
             /* since the element has been found traversal cannot be NULL in this case */
             currentPtr = Tables[i].fmrtData + (traversal->index)*Tables[i].elemSize;
         }   /* if (duplKey) */
         else
         {   /* the element is not present -> create it */
             /* Check if this is the first insertion */
-            if ( (Tables[i].fmrtData==NULL) || (Tables[i].status==DEFINED) )
+            if ( (Tables[i].fmrtData==NULL) || (Tables[i].status<NOTEMPTY) )
             {   /* Initialize Empty elements list */
                 res = initEmptyList(i);
                 if (res!=FMRTOK)
                 {   /* Not able to allocate memory and initialize empty list - very likely we have not enough memory free */
                     clearNodeTraversalStack (traversal);
+                    free (Tables[i].row);
+                    Tables[i].row = NULL;
                     /* Clear the lock before exiting */
                     pthread_mutex_unlock(&(Tables[i].tableMtx));
                     return (res);
@@ -4184,6 +4522,8 @@ fmrtResult fmrtImportTableCsv (fmrtId tableId, FILE *filePtr, char separator, in
             if ( (newElement=getEmptyElem(i)) == FMRTNULLPTR)
             {   /* Not able to fetch an empty element - Probably the table is full */
                 clearNodeTraversalStack (traversal);
+                free (Tables[i].row);
+                Tables[i].row = NULL;
                 /* Clear the lock before exiting */
                 pthread_mutex_unlock(&(Tables[i].tableMtx));
                 return (FMRTOUTOFMEMORY);
@@ -4250,43 +4590,8 @@ fmrtResult fmrtImportTableCsv (fmrtId tableId, FILE *filePtr, char separator, in
             }
         }   /* switch (Tables[i].key.type) */
 
-        /* Now read the variable list of arguments and use them to fill in the fields */
-        for (j=0; j<Tables[i].numFields; j++)
-        {   /* Loop through all fields */
-            switch (Tables[i].fields[j].type)
-            {
-                case FMRTINT:
-                {
-                    *((uint32_t *)(currentPtr+Tables[i].fields[j].delta)) = fieldInt[j];
-                    break;
-                }
-                case FMRTSIGNED:
-                {
-                    *((int32_t *)(currentPtr+Tables[i].fields[j].delta)) = fieldSigned[j];
-                    break;
-                }
-                case FMRTDOUBLE:
-                {
-                    *((double *)(currentPtr+Tables[i].fields[j].delta)) = fieldDouble[j];
-                    break;
-                }
-                case FMRTCHAR:
-                {
-                    *((char *)(currentPtr+Tables[i].fields[j].delta)) = fieldChar[j];
-                    break;
-                }
-                case FMRTSTRING:
-                {   /* Please observe that fieldsString[j] has been truncated when it has been read from the input csv file */
-                    strcpy ((char *)(currentPtr+Tables[i].fields[j].delta),fieldString[j]);
-                    break;
-                }
-                case FMRTTIMESTAMP:
-                {
-                    *((time_t *)(currentPtr+Tables[i].fields[j].delta)) = fieldTimestamp[j];
-                    break;
-                }
-            }   /* switch (Tables[i].fields[j].type) */
-        }   /* for (j=0; j<Tables[i].numFields; j++) */
+        /* Now copy the fields copied into buffer all at once */
+        memcpy ((void *)(currentPtr+Tables[i].fields[0].delta), Tables[i].row, fieldsLen);
 
         /* Element has been inserted - if duplKey==0 (i.e. new element) go through the   */
         /* traversal LIFO structure and rebalance fmrt tree starting from the bottom and  */
@@ -4319,7 +4624,9 @@ fmrtResult fmrtImportTableCsv (fmrtId tableId, FILE *filePtr, char separator, in
 
     }   /* while (fgets (inputString)... */
 
-    /* Clear the lock before exiting */
+    /* Release memory allocated for row, clear the lock and exit */
+    free (Tables[i].row);
+    Tables[i].row=NULL;
     pthread_mutex_unlock(&(Tables[i].tableMtx));
 
     return (FMRTOK);
@@ -4342,9 +4649,14 @@ fmrtResult fmrtImportTableCsv (fmrtId tableId, FILE *filePtr, char separator, in
  * - separator
  *   It is a char specified by the caller that is used to
  *   separate fields into the output
- * - reverseFlag
- *   if 0 the table is exported in ascending order with
- *   respect to the key, otherwise descending order is used
+ * - selectedOrder
+ *   it can assume the following values: FMRTASCENDING, to
+ *   export data in ascending order with respect to the key,
+ *   FMRTDESCENDING to use descending order, and
+ *   FMRTOPTIMIZED to export data using an order optimized
+ *   to speed up data reload through fmrtImportTableCsv().
+ *   If an unrecognized value is specified, by default the
+ *   call will export data assuming FMRTOPTIMIZED.
  * Please note that the file shall be opened before calling
  * this function, otherwise a run-time error will occur.
  * Similarly, the function call does not close the output
@@ -4358,8 +4670,11 @@ fmrtResult fmrtImportTableCsv (fmrtId tableId, FILE *filePtr, char separator, in
  *   call invoked by the caller
  * - FMRTIDNOTFOUND
  *   tableId is not defined
+ * - FMRTOUTOFMEMORY
+ *   There is not enough memory to allocate data structures
+ *   needed to export the table in FMRTOPTIMIZED order
  ***********************************************************/
-fmrtResult fmrtExportTableCsv (fmrtId tableId, FILE *filePtr, char separator, uint8_t reverseFlag)
+fmrtResult fmrtExportTableCsv (fmrtId tableId, FILE *filePtr, char separator, uint8_t selectedOrder)
 {
     /* Local Variables */
     uint8_t     i,j;
@@ -4388,12 +4703,16 @@ fmrtResult fmrtExportTableCsv (fmrtId tableId, FILE *filePtr, char separator, ui
     fprintf (filePtr,"\n");
 
     /* Start recursion from root node */
-    exportTableRecurse (i, Tables[i].fmrtRoot, filePtr, separator, reverseFlag);
+    res = FMRTOK;
+    if ( (selectedOrder==FMRTASCENDING) || (selectedOrder==FMRTDESCENDING) )
+        exportTableRecurse (i, Tables[i].fmrtRoot, filePtr, separator, selectedOrder);
+    else
+        res = exportTableOptimized (i, Tables[i].fmrtRoot, filePtr, separator);
 
     /* Clear the lock before exiting */
     pthread_mutex_unlock(&(Tables[i].tableMtx));
 
-    return (FMRTOK);
+    return (res);
 }
 
 
@@ -4416,9 +4735,14 @@ fmrtResult fmrtExportTableCsv (fmrtId tableId, FILE *filePtr, char separator, ui
  * - separator
  *   It is a char specified by the caller that is used to
  *   separate fields into the output
- * - reverseFlag
- *   if 0 the table is exported in ascending order with
- *   respect to the key, otherwise descending order is used
+ * - selectedOrder
+ *   it can assume the following values: FMRTASCENDING, to
+ *   export data in ascending order with respect to the key,
+ *   FMRTDESCENDING to use descending order. Differently
+ *   from fmrtExportTableCsv(), FMRTOPTIMIZED ordering is
+ *   not supported for ranges. If an unrecognized value is
+ *   specified, by default data will be exported assuming
+ *   FMRTASCENDING order.
  * - keyMin
  *   Minimum value of the key. It must be of the same type
  *   specified at key definition (fmrtDefineKey() call).
@@ -4444,7 +4768,7 @@ fmrtResult fmrtExportTableCsv (fmrtId tableId, FILE *filePtr, char separator, ui
  * - FMRTIDNOTFOUND
  *   tableId is not defined
  ***********************************************************/
-fmrtResult fmrtExportRangeCsv (fmrtId tableId, FILE *filePtr, char separator, uint8_t reverseFlag, ...)
+fmrtResult fmrtExportRangeCsv (fmrtId tableId, FILE *filePtr, char separator, uint8_t selectedOrder, ...)
 {
     /* Local Variables */
     va_list     args;
@@ -4474,7 +4798,7 @@ fmrtResult fmrtExportRangeCsv (fmrtId tableId, FILE *filePtr, char separator, ui
         return (res);
 
     /* Parse Min and Max key Value (depending on key type) */
-    va_start (args, reverseFlag);
+    va_start (args, selectedOrder);
     switch (Tables[i].key.type)
     {
         case FMRTINT:
@@ -4587,32 +4911,32 @@ fmrtResult fmrtExportRangeCsv (fmrtId tableId, FILE *filePtr, char separator, ui
     {
         case FMRTINT:
         {
-            exportRangeRecurseInt (i, Tables[i].fmrtRoot, filePtr, separator, reverseFlag, keyIntMin, keyIntMax);
+            exportRangeRecurseInt (i, Tables[i].fmrtRoot, filePtr, separator, selectedOrder, keyIntMin, keyIntMax);
             break;
         }
         case FMRTSIGNED:
         {
-            exportRangeRecurseSigned (i, Tables[i].fmrtRoot, filePtr, separator, reverseFlag, keySignedMin, keySignedMax);
+            exportRangeRecurseSigned (i, Tables[i].fmrtRoot, filePtr, separator, selectedOrder, keySignedMin, keySignedMax);
             break;
         }
         case FMRTDOUBLE:
         {
-            exportRangeRecurseDouble (i, Tables[i].fmrtRoot, filePtr, separator, reverseFlag, keyDoubleMin, keyDoubleMax);
+            exportRangeRecurseDouble (i, Tables[i].fmrtRoot, filePtr, separator, selectedOrder, keyDoubleMin, keyDoubleMax);
             break;
         }
         case FMRTCHAR:
         {
-            exportRangeRecurseChar (i, Tables[i].fmrtRoot, filePtr, separator, reverseFlag, keyCharMin, keyCharMax);
+            exportRangeRecurseChar (i, Tables[i].fmrtRoot, filePtr, separator, selectedOrder, keyCharMin, keyCharMax);
             break;
         }
         case FMRTSTRING:
         {
-            exportRangeRecurseString (i, Tables[i].fmrtRoot, filePtr, separator, reverseFlag, keyStringMin, keyStringMax);
+            exportRangeRecurseString (i, Tables[i].fmrtRoot, filePtr, separator, selectedOrder, keyStringMin, keyStringMax);
             break;
         }
         case FMRTTIMESTAMP:
         {
-            exportRangeRecurseTimestamp (i, Tables[i].fmrtRoot, filePtr, separator, reverseFlag, keyTimestampMin, keyTimestampMax);
+            exportRangeRecurseTimestamp (i, Tables[i].fmrtRoot, filePtr, separator, selectedOrder, keyTimestampMin, keyTimestampMax);
             break;
         }
     }   /* switch (Tables[i].key.type) */
@@ -4714,7 +5038,7 @@ long fmrtGetMemoryFootPrint(fmrtId tableId)
  * seconds from Epoch, Jan 1st 1970, 00:00:00 UTC), however
  * it allows changing the format used to display and enter
  * FMRTTIMEFORMAT data. When a format is specified, then
- * timestamp keys and fields in fmrtRead(), frmrtCreate(),
+ * timestamp keys and fields in fmrtRead(), fmrtCreate(),
  * etc. must be defined as character strings with the
  * correct format (e.g. "Mon Jun 21 17:08:55 2021").
  * The library allows also the usage of raw time format; in

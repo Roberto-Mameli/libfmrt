@@ -2,7 +2,7 @@
 #   ---------------------------------------------------                            #
 #   C/C++ Fast Memory Resident Tables Library (libfmrt)                            #
 #   ---------------------------------------------------                            #
-#   Copyright 2020-2021 Roberto Mameli                                             #
+#   Copyright 2022 Roberto Mameli                                                  #
 #                                                                                  #
 #   Licensed under the Apache License, Version 2.0 (the "License");                #
 #   you may not use this file except in compliance with the License.               #
@@ -49,7 +49,7 @@ obj/%.o: src/%.c
 	$(CC) $(CFLAGS) -c -Wall -v $(INCLUDE) -o $@ $<
 
 all:
-	$(CC) -c -fpic -Wall -v $(INCLUDE) $(FMRTSOURCES) $(LIBS)
+	$(CC) -c -fpic -Wall -v $(INCLUDE) $(FMRTSOURCES) -o $(FMRTOBJS) $(LIBS)
 	$(CC) -shared -Wl,-soname,$(FMRTLIB).so.1 -o $(FMRTLIB).so.1.0  $(FMRTOBJS) -lc
 	$(AR) rcs $(FMRTLIB).a $(FMRTOBJS)
 

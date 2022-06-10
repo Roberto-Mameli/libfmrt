@@ -2,7 +2,7 @@
  * ---------------------------------------------------                       *
  * C/C++ Fast Memory Resident Tables Library (libfmrt)                       *
  * ---------------------------------------------------                       *
- * Copyright 2020-2021 Roberto Mameli                                        *
+ * Copyright 2022 Roberto Mameli                                             *
  *                                                                           *
  * Licensed under the Apache License, Version 2.0 (the "License");           *
  * you may not use this file except in compliance with the License.          *
@@ -49,26 +49,25 @@
 #define FMRTDEBUGLIMIT           100    /* Debug printouts are obtained only if the number of elements is less than FMRTDEBUGLIMIT */
 
 /* Some libfmrt limits */
-#define MAXTABLES                 32    /* Max number of AVL Tree tables             */
-#define MAXFMRTELEM         67108864    /* Max Number Elements in table - 2^26       */
-#define MAXFMRTFIELDNUM           16    /* Max num of fieds for each table           */
-#define MAXFMRTTABLENAME          32    /* Max Length for table name                 */
-#define MAXFMRTNAMELEN            16    /* Max length for key/field name             */
-#define MAXFMRTSTRINGLEN          64    /* Max length for string data                */
-#define MAXCSVLINELEN           1200    /* Max allowed length for lines in CSV files */
+#define MAXTABLES                 32    /* Max number of AVL Tree tables                    */
+#define MAXFMRTELEM         67108864    /* Max Number Elements in table = 2^26              */
+#define MAXFMRTFIELDNUM           16    /* Max num of fieds for each table                  */
+#define MAXFMRTTABLENAME          32    /* Max Length for table name                        */
+#define MAXFMRTNAMELEN            16    /* Max length for key/field name                    */
+#define MAXFMRTSTRINGLEN         255    /* Max length for string data (excluding trailing 0 */
+#define MAXCSVLINELEN           1200    /* Max allowed length for lines in CSV files        */
 
-/* Constant used to indicate the null fmrtIndex pointer */
-#define FMRTNULLPTR       0xFFFFFFFF    /* Constant used to identify NULL ptr        */
-
-/* Used in traversal node LIFO structure to indicate the path to the next node       */
-#define LEFT                      -1    /* Used to identify LEFT subtree             */
-#define STAY                       0    /* This is the node we were looking for      */
-#define RIGHT                      1    /* Used to identify RIGHT subtree            */
+/* Used in traversal node LIFO structure to indicate the path to the next node              */
+#define LEFT                      -1    /* Used to identify LEFT subtree                    */
+#define STAY                       0    /* This is the node we were looking for             */
+#define RIGHT                      1    /* Used to identify RIGHT subtree                   */
 
 /* Possible statuses of a fmrtTableItem */
-#define FREE                       0    /* Available for allocation to new table     */
-#define DEFINED                    1    /* Defined, but without elements so far      */
-#define NOTEMPTY                   2    /* At least one element in the AVL Tree      */
+#define FREE                       0    /* Available for allocation to new table            */
+#define DEFINED                    1    /* Table defined, key/fields still missing          */
+#define KEYDEFINED                 2    /* Key defined, fields still missing                */
+#define FIELDSDEFINED              3    /* Fields defined, table still empty                */
+#define NOTEMPTY                   4    /* At least one element in the AVL Tree             */
 
 /* Default time format for FMRTTIMESTAMP type */
 //#define FMRTTIMEFORMAT            ""    /* Dafault value is empty string, i.e. time_stamp printed in raw format */
@@ -97,12 +96,17 @@ typedef struct tableItem
     fmrtIndex       tableMaxElem,
                     currentNumElem,
                     fmrtRoot,
-                    fmrtFree;
+                    fmrtFree,
+                    fifoSize,
+                    fifoIn,
+                    fifoOut,
+                   *fifo;
     fmrtField       key,
                     fields[MAXFMRTFIELDNUM];
     uint16_t        elemSize;
     pthread_mutex_t tableMtx;
-    void            *fmrtData;
+    void           *fmrtData,
+                   *row;
 } fmrtTableItem;
 
 /* Generic element in the LIFO structure built by searchElem() when traversing the tree */
